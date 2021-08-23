@@ -69,3 +69,5 @@ i.e. parallel edges are rings with size 1 and self-loops are rings with size 0.
 2. For inorganic structures we can extend alphabet to include building units, see [znpo.py](examples/znpo.py).
 3. From CIF to string, bond type has to be determined for each edge. This is *largely* solved for organics 
 but I'm not sure there is a robust method for inorganic structures, especially when hydrogen atoms are missing.
+4. Strictly speaking, finite graph is derived for a specific cell. That means two cells representing the same crystal could give two different finite graph. 
+So we need to either start from the most reduced cell, or find a way to reduce the finite graph (or the string representation).
