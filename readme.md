@@ -1,6 +1,6 @@
 Finite graph for crystals
 --
-A proof of idea using finite graph to 
+A proof of concept using finite graph to 
 describe crystal structure.
 
 The underlying periodic graph (infinitely large) 
@@ -32,7 +32,7 @@ As a crystal its unit cell is `[-A=B]`
 
 To represent this unit cell we can create a graph:
 ```
-NODES:  \\ what's in the unit cell?
+NODES:  \\ what's inside the unit cell?
 	A, B
 EDGES:  \\ for each node, what are their neighbors?
 	e1, {"head": A, "tail": B, "real space direction": ">", "type": "double"}
@@ -67,5 +67,5 @@ I don't know how to do this in SMILES.
 For SELFIES it seems we can just add two characters with `Q=0` and `Q=-1`,
 i.e. parallel edges are rings with size 1 and self-loops are rings with size 0.
 2. For inorganic structures we can extend alphabet to include building units, see [znpo.py](examples/znpo.py).
-3. From CIF to string, bond type has to be determined for each edge. This is largely solved for organics 
+3. From CIF to string, bond type has to be determined for each edge. This is *largely* solved for organics 
 but I'm not sure there is a robust method for inorganic structures, especially when hydrogen atoms are missing.
