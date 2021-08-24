@@ -64,8 +64,8 @@ where this is defined as the "fundamental finite graph" of a crystal.
 ### Suggestions for string representations
 1. Allow parallel edges and self-loops. 
 I don't know how to do this in SMILES. 
-For SELFIES it seems we can just add two characters with `Q=0` and `Q=-1`,
-i.e. parallel edges are rings with size 1 and self-loops are rings with size 0.
+For SELFIES it seems we can just add two characters with `Q=1` and `Q=0`,
+i.e. parallel edges are rings of size 2 and self-loops are rings of size 1.
 2. For inorganic structures we can extend alphabet to include building units, see [znpo.py](examples/znpo.py).
 3. From CIF to string, bond type has to be determined for each edge. This is *largely* solved for organics 
 but I'm not sure there is a robust method for inorganic structures, especially when hydrogen atoms are missing.
