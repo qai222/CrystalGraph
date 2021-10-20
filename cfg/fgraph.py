@@ -36,7 +36,7 @@ _default_CNN = CrystalNN(
 
 
 class FiniteGraph:
-
+    """this is the unlabeled quotient graph"""
     def __init__(self, graph: nx.Graph, lattice: Lattice):
         self.graph = graph
         self.lattice = lattice
@@ -156,3 +156,5 @@ class FiniteGraph:
             site = PeriodicSite(symbols[n], coords[n], self.lattice)
             sites.append(site)
         return Structure.from_sites(sites)
+
+

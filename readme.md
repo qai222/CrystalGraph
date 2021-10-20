@@ -1,7 +1,9 @@
 Finite graph for crystals
 --
 A proof of concept using finite graph to 
-describe crystal structure.
+describe connectivities (combinatory topology) of crystal structures.
+
+
 
 The underlying periodic graph (infinitely large) 
 of a crystal can be described by a finite graph
