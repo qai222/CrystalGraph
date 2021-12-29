@@ -2,7 +2,7 @@ Crystal Graph
 --
 Finite graphs for describing bond topology of crystal structures.
 
-### Install
+### Installation
 1. Install `pymatgen`: `conda install -y numpy scipy matplotlib; pip install pymatgen`
 2. To visualize graph with parallel edges you would need [graphviz](https://pygraphviz.github.io/documentation/stable/install.html).
 3. Install this package by `pip install crystalgraph`.
