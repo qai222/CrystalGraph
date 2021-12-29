@@ -14,12 +14,12 @@ specifically:
 2. [qg_cif.ipython](examples/qg_cif.ipynb) convert CIFs to quotient graphs, and contract atom nodes to building units.
 
 ### TODO
-[x] basic QG classes
-[x] QG visulaization functions
-[] QG features, such as dimensionality
-[] enumeration of LQGs from a UQG
-[] QG embedding functions
-[] string representation
+- [x] basic QG classes
+- [x] QG visulaization functions
+- [] QG features, such as dimensionality
+- [] enumeration of LQGs from a UQG
+- [] QG embedding functions
+- [] string representation
 
 ### Suggestions for string representations
 1. Allow parallel edges and self-loops. 
