@@ -1,23 +1,25 @@
 Crystal Graph
 --
-Graphs for bond topology of crystal structures.
-
-The underlying periodic graph (infinitely large) 
-of a crystal can be described by a finite graph
-and a set of real space vectors.
+Finite graphs for describing bond topology of crystal structures.
 
 ### Install
-You need `pymatgen` installed.
-
-```
-pip install crystalgraph
-```
+First you need `pymatgen`: `conda install -y numpy scipy matplotlib; pip install pymatgen`
+To visualize graph with parallel edges you would need [graphviz](https://pygraphviz.github.io/documentation/stable/install.html).
+Finnally, install this package by `pip install crystalgraph`.
 
 ### Usage
 Some examples can be found in the folder [examples](./examples),
 specifically:
 1. [qg_base.ipython](examples/qg_base.ipynb) describes basic usage of quotient graph class.
 2. [qg_cif.ipython](examples/qg_cif.ipynb) convert CIFs to quotient graphs, and contract atom nodes to building units.
+
+### TODO
+[x] basic QG classes
+[x] QG visulaization functions
+[] QG features, such as dimensionality
+[] enumeration of LQGs from a UQG
+[] QG embedding functions
+[] string representation
 
 ### Suggestions for string representations
 1. Allow parallel edges and self-loops. 
