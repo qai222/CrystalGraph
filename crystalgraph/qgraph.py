@@ -7,10 +7,13 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from networkx.drawing.nx_agraph import to_agraph
-from pymatgen.core.structure import Structure, PeriodicSite, Lattice
+from pymatgen.core.periodic_table import Element
+from pymatgen.core.periodic_table import _pt_data
+from pymatgen.core.structure import Structure, PeriodicSite, Lattice, Composition
+from pymatgen.vis.structure_vtk import EL_COLORS
 
-from cqgraph.params import _default_CNN
-from cqgraph.utils import all_have_attributes, gm_node, multigraph_cycles, edge_hash, is_3d_parallel
+from crystalgraph.params import _default_CNN
+from crystalgraph.utils import all_have_attributes, gm_node, multigraph_cycles, edge_hash, is_3d_parallel
 
 _allowed_voltages = tuple(itertools.product(range(-1, 2), repeat=3))
 
@@ -57,7 +60,7 @@ class QuotientGraph(metaclass=abc.ABCMeta):
 
 class UQG(QuotientGraph):
     """
-    The unlabelled quotient graph (UQG) is an undirected, edge-unlabeled multigraph.
+    The unlabelled quotient graph (UQG) is an undirected multigraph.
     """
 
     def __init__(self, graph: nx.MultiGraph, properties: dict = None, ):
@@ -69,6 +72,31 @@ class UQG(QuotientGraph):
             assert all_have_attributes(self.nxg, ("symbol",), element="node")
         except AssertionError:
             raise QGerror("UQG check failed!")
+
+    def draw(self, num="uqg", pos=None):
+        g = self.nxg
+        fig = plt.figure(num)
+        edge_colors = {1: "k", 2: "r", 3: "g"}
+
+        if pos is None:
+            pos = nx.spring_layout(g, seed=42)
+
+        try:
+            edge_colors = [edge_colors[e[2]["nshare"]] for e in g.edges(data=True)]
+        except KeyError:
+            edge_colors = ["k" for _ in g.edges(data=True)]
+        node_colors = []
+        for n in g.nodes(data=True):
+            symbol = n[1]["symbol"]
+            if symbol not in _pt_data.keys():
+                es = [e.name for e in Composition(symbol).elements if e.name not in ["O", "H"]]
+                es = sorted(es, key=lambda x: Element(x).Z, reverse=True)
+                symbol = es[0]
+            node_colors.append('#{:02x}{:02x}{:02x}'.format(*EL_COLORS['Jmol'][symbol]))
+        nx.draw_networkx_nodes(g, pos, node_color=node_colors, node_size=500)
+        nx.draw_networkx_labels(g, pos, labels=nx.get_node_attributes(g, "symbol")),
+        nx.draw_networkx_edges(g, pos, edgelist=g.edges, edge_color=edge_colors, arrows=False)
+        return fig, pos
 
     def __eq__(self, other):
         """UQGs are the same by symbol-match isomorphism"""
@@ -106,11 +134,13 @@ class LQG(QuotientGraph):
         return UQG(g, self.properties)
 
     def draw_graphviz(self, filename="multi.png", ipython=False):
+        # use graphviz to plot graph with parallel edges
         g = nx.MultiDiGraph()
 
         for n, d in self.nxg.nodes(data=True):
             g.add_node(n, label="{}{}".format(n, d["symbol"]))
 
+        edge_colors = {1: "gray", 2: "r", 3: "g"}
         for u, v, k, d in self.nxg.edges(data=True, keys=True):
             voltage = d["voltage"]
             if voltage == (0, 0, 0):
@@ -118,7 +148,11 @@ class LQG(QuotientGraph):
             else:
                 label = "".join(str(i) for i in voltage)
             n1, n2 = d["direction"]
-            g.add_edge(n1, n2, key=k, label=label)
+            if "nshare" in d:
+                e_color = edge_colors[d["nshare"]]
+                g.add_edge(n1, n2, key=k, label=label, color=e_color)
+            else:
+                g.add_edge(n1, n2, key=k, label=label)
 
         g.graph['edge'] = {'arrowsize': '0.6', 'splines': 'curved'}
         g.graph['graph'] = {'scale': '3'}
@@ -165,15 +199,34 @@ class LQG(QuotientGraph):
         )
         return fig, positions
 
-    def voltage_sum(self, edge_list, cycle) -> tuple:
+    def voltage_sum_cycle(self, edge_list, cycle) -> tuple:
         multigraph = self.nxg
         voltage = np.zeros(3, dtype=int)
+        assert len(edge_list) == len(cycle)
         for i, (u, v, k) in enumerate(edge_list):
             head = cycle[i]
             if i == len(edge_list) - 1:
                 tail = cycle[0]
             else:
                 tail = cycle[i + 1]
+            direction = multigraph.edges[(u, v, k)]["direction"]
+            edge_voltage = np.array(multigraph.edges[(u, v, k)]["voltage"], dtype=int)
+            if direction == (head, tail):
+                voltage += edge_voltage
+            else:
+                voltage -= edge_voltage
+        return tuple(voltage)
+
+    def voltage_sum_path(self, edge_list, path=None):
+        multigraph = self.nxg
+        voltage = np.zeros(3, dtype=int)
+        if path is None:
+            path = [e[0] for e in edge_list]
+            path.append(edge_list[-1][1])
+        assert len(edge_list) + 1 == len(path)
+        for i, (u, v, k) in enumerate(edge_list):
+            head = path[i]
+            tail = path[i + 1]
             direction = multigraph.edges[(u, v, k)]["direction"]
             edge_voltage = np.array(multigraph.edges[(u, v, k)]["voltage"], dtype=int)
             if direction == (head, tail):
@@ -189,14 +242,14 @@ class LQG(QuotientGraph):
 
         Note:
         While it is claimed that for 3D crystals two LQGs of the same net (crystallographic net) cannot have
-        non-isomorphic UQGs, this may not be true for 1D. Considering two polymers
+        non-isomorphic UQGs, this may not be true for 1D: Considering two polymers
         1. A - B - A - B ...
            |   |   |   |
            A - B - A - B ...
         2. A   B - A   B ...
            | X |   | X |
            A   B - A   B ...
-        One can go from 1. to 2. by "twisting" every other unit horizontally,
+        One can go from 1. to 2. by "twisting" every other unit vertically,
         these two embeddings of the same net, however, give two non-isomorphic UQGs.
         """
         if len(self) != len(other):
@@ -223,8 +276,8 @@ class LQG(QuotientGraph):
                 edge_list2 = []
                 for u, v, k in edge_list1:
                     edge_list2.append((p[u], p[v], k))
-                voltage_sum1 = self.voltage_sum(edge_list1, cycle1)
-                voltage_sum2 = other.voltage_sum(edge_list2, cycle2)
+                voltage_sum1 = self.voltage_sum_cycle(edge_list1, cycle1)
+                voltage_sum2 = other.voltage_sum_cycle(edge_list2, cycle2)
                 logging.info(" ".join(["cycles in 1:", str(cycle1), "voltage sum:", str(voltage_sum1)]))
                 logging.info(" ".join(["cycles in 2:", str(cycle2), "voltage sum:", str(voltage_sum2)]))
                 if voltage_sum1 != voltage_sum2:
@@ -244,7 +297,7 @@ class LQG(QuotientGraph):
         visited_voltage_edges = []
         g = nx.MultiGraph()
         for i, n in enumerate(s):
-            g.add_node(i, symbol=n.species_string)
+            g.add_node(i, symbol=n.species_string, frac_coords=s[i].frac_coords)
         for n, neighbors in enumerate(nn_method.get_all_nn_info(s)):
             n_image = (0, 0, 0)
             for neighbor in neighbors:
@@ -255,8 +308,9 @@ class LQG(QuotientGraph):
                 voltage_edge = VoltageEdge(v_frac, n, neighbor_index, n_image, neighbor_image)
                 if voltage_edge not in visited_voltage_edges:
                     voltage = neighbor_image
-                    v_cart = s.lattice.get_cartesian_coords(v_frac)
-                    g.add_edge(n, neighbor["site_index"], v_frac=v_frac, v_cart=v_cart,
+                    # v_cart = s.lattice.get_cartesian_coords(v_frac)
+                    g.add_edge(n, neighbor["site_index"],
+                               # v_frac=v_frac, v_cart=v_cart,
                                direction=(n, neighbor["site_index"]), voltage=voltage)
                     visited_voltage_edges.append(voltage_edge)
         if prop is None:
@@ -264,7 +318,7 @@ class LQG(QuotientGraph):
         prop["lattice"] = s.lattice
         return cls(g, properties=prop)
 
-    def to_structure(self, lattice=None) -> Structure:
+    def to_structure(self, lattice=None, barycentric=False, barycentric_dim=3) -> Structure:
 
         if lattice is None:
             try:
@@ -277,22 +331,151 @@ class LQG(QuotientGraph):
             except AssertionError:
                 raise ValueError("lattice is not None but is also not a valid Lattice object!")
 
-        n0 = list(self.nxg.nodes)
-        symbols = self.symbols
-        coords = dict()
-        for u, v, k in nx.edge_dfs(self.nxg, source=n0):
-            if u not in coords:
-                coords_u = np.array([0, 0, 0])
-                coords[u] = coords_u
-            else:
-                coords_u = coords[u]
-            coords_v = coords_u + self.nxg.edges[(u, v, k)]["v_frac"]
-            coords[v] = coords_v
         sites = []
-        for n in symbols:
-            site = PeriodicSite(symbols[n], coords[n], lattice)
-            sites.append(site)
+        if barycentric:
+            self.barycentric_placement(barycentric_dim)
+        else:
+            assert all_have_attributes(self.nxg, ("frac_coords",), "node")
+            # TODO use edge vectors to embed
+
+        for n, d in self.nxg.nodes(data=True):
+            site_symbol = d["symbol"]
+            if site_symbol not in _pt_data.keys():
+                es = [e.name for e in Composition(site_symbol).elements if e.name not in ["O", "H"]]
+                es = sorted(es, key=lambda x: Element(x).Z, reverse=True)
+                site_symbol = es[0]
+                logging.warning(
+                    "this node has a symbol not in the periodic table, we think it is a PBU and use its heaviest element: {}".format(
+                        self.symbols[n]))
+            if barycentric:
+                s = PeriodicSite(site_symbol, d["barypos"], lattice=lattice)
+            else:
+                s = PeriodicSite(site_symbol, d["frac_coords"], lattice=lattice)
+            sites.append(s)
         return Structure.from_sites(sites)
+
+    def bu_contraction(
+            self,
+            allowed_terminals=("O", "H", "F", "Cl", "Br", "I"),
+            allowed_centers=("Si", "B", "C", "O", "H", "N", "F", "P", "S", "Cl", "As", "Se", "Br", "I",),
+            allow_metal_center=True,
+
+    ):
+        """
+        contract atom nodes to building units
+        a building unit is currently defined as a k>=3 star of limited symbols, so it's actually polyhedron contraction
+        this is coded specifically for oxide/oxysalt, be cautious when dealing with other chemical systems
+        #TODO maybe better to use a general graph definition so carboxylic are included, see `The Journal of Chemical Physics 154.18 (2021): 184708.`
+        """
+        stars = []
+        if allow_metal_center:
+            star_element_check = lambda center, outers: (center in allowed_centers or Element(center).is_metal) and set(
+                outers).issubset(set(allowed_terminals)) and len(outers) >= 3
+        else:
+            star_element_check = lambda center, outers: center in allowed_centers and set(outers).issubset(
+                set(allowed_terminals)) and len(outers) >= 3
+
+        for n in self.nxg.nodes:
+            nbs = list(nx.neighbors(self.nxg, n))
+            center_element = self.symbols[n]
+            nb_elements = [self.symbols[nb] for nb in nbs]
+            if star_element_check(center=center_element, outers=nb_elements):
+                stars.append([n] + nbs)  # the first node is the center
+
+        # a set of checks
+        # 1. there must be at least one star
+        assert len(stars) > 0, "there is no allowed star"
+        # 2. two centers cannot be directly connected
+        star_adj = [[set()] * len(stars)] * len(stars)
+        for i, j in itertools.combinations(range(len(stars)), r=2):
+            star_i, star_j = stars[i], stars[j]
+            assert not self.nxg.has_edge(star_i[0], star_j[
+                0]), "two centers cannot be connected by one edge, exception found: {} and {}".format(star_i, star_j)
+            ij_intersection = set(star_i).intersection(set(star_j))
+            star_adj[i][j] = ij_intersection
+            star_adj[j][i] = ij_intersection
+        # 3. a star must have at least one neighboring star (sharing at least one terminal node), this excludes e.g. peroxides
+        for i in range(len(stars)):
+            nshare = 0
+            for j in range(len(stars)):
+                if len(star_adj[i][j]) > 0:
+                    nshare += 1
+            assert nshare > 0, "the following start does not have a neighboring star: {}".format(stars[i])
+
+        nodelist2starnode = lambda nodelist: "-".join([str(n) for n in sorted(nodelist)])
+        res = nx.MultiGraph()
+
+        for star in stars:
+            star_symbol = Composition(" ".join([self.symbols[n] for n in star])).formula
+            star_node = nodelist2starnode(star)
+            try:
+                center_node_frac_coords = self.nxg.nodes[star[0]]["frac_coords"]
+                res.add_node(star_node, symbol=star_symbol, center=star[0], center_symbol=self.symbols[star[0]],
+                             frac_coords=center_node_frac_coords)
+            except KeyError:
+                res.add_node(star_node, symbol=star_symbol, center=star[0], center_symbol=self.symbols[star[0]])
+
+        # 1. find all length-2 *edge* paths from i-center to j-center
+        # 2. calculate its voltage sum v_ij
+        # 3. if two paths have the same voltage, group them together
+        # 4. for each group, add an edge and assign the voltage with direction i->j
+        groups = {}
+        for i, j in itertools.combinations(range(len(stars)), r=2):
+            star_i, star_j = stars[i], stars[j]
+            star_i_node = nodelist2starnode(star_i)
+            star_j_node = nodelist2starnode(star_j)
+            for edge_list in nx.all_simple_edge_paths(self.nxg, star_i[0], star_j[0]):
+                if len(edge_list) != 2:
+                    continue
+                voltage = self.voltage_sum_path(edge_list)
+                direction = (star_i_node, star_j_node)
+                key = (voltage, direction)
+                if key not in groups:
+                    groups[key] = [edge_list]
+                else:
+                    groups[key].append(edge_list)
+                # node_path = [e[0] for e in edge_list] + [edge_list[-1][1]]
+        for k in groups:
+            v, d = k
+            edge_lists = groups[k]
+            res.add_edge(d[0], d[1], key=None, direction=d, voltage=v,
+                         edge_lists=edge_lists, nshare=len(edge_lists))
+        return LQG(res)
+
+    def barycentric_placement(self, dim=3) -> np.ndarray:
+        """
+        copied from gavrog project by Olaf Delgado-Friedrichs
+        https://github.com/odf/gavrog/blob/master/src/org/gavrog/joss/pgraphs/basic/PeriodicGraph.java
+        #TODO it seems this does not work for 1D structures, see ROBRIK case
+        """
+        n = len(self)
+        g = self.nxg
+        adjdict = g.adj
+        A = np.zeros((n, n))
+        t = np.zeros((n, dim))
+        vert2vid = dict(zip(g.nodes, range(len(self))))
+        A[0, 0] = 1
+        for i in range(1, n):
+            v = list(g.nodes)[i]
+            for w in adjdict[v]:
+                if v == w:
+                    continue
+                j = vert2vid[w]
+                for k in adjdict[v][w]:
+                    edgedata = adjdict[v][w][k]
+                    direction = edgedata["direction"]
+                    voltage = edgedata["voltage"]
+                    if direction == (v, w):
+                        this_voltage = np.array(voltage)
+                    else:
+                        this_voltage = -np.array(voltage)
+                    A[i][j] -= 1
+                    A[i][i] += 1
+                    t[i] += this_voltage
+        p = np.linalg.solve(A, t)
+        attrs = {n: {"barypos": np.round(pos, 3)} for pos, n in zip(p, g.nodes)}
+        nx.set_node_attributes(self.nxg, attrs)
+        return p
 
 
 class VoltageEdge:
@@ -399,7 +582,6 @@ class LQGeq:
                         yield LQG(enumerated)
                     except QGerror:
                         continue
-        # print(found, total)
 
     @staticmethod
     def permutation(lqg: LQG, p: dict):
@@ -415,5 +597,4 @@ class LQGeq:
             new_direction = (p[direction[0]], p[direction[1]])
             permuted_lqg.add_edge(p[u], p[v], voltage=voltage, direction=new_direction)
         return LQG(permuted_lqg)
-
 
