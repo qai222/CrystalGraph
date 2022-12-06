@@ -73,9 +73,9 @@ class UQG(QuotientGraph):
         except AssertionError:
             raise QGerror("UQG check failed!")
 
-    def draw(self, num="uqg", pos=None):
+    def draw(self, num="uqg", pos=None, figsize=(4, 4)):
         g = self.nxg
-        fig = plt.figure(num)
+        fig = plt.figure(num, figsize=figsize)
         edge_colors = {1: "k", 2: "r", 3: "g"}
 
         if pos is None:
@@ -96,6 +96,7 @@ class UQG(QuotientGraph):
         nx.draw_networkx_nodes(g, pos, node_color=node_colors, node_size=500)
         nx.draw_networkx_labels(g, pos, labels=nx.get_node_attributes(g, "symbol")),
         nx.draw_networkx_edges(g, pos, edgelist=g.edges, edge_color=edge_colors, arrows=False)
+        fig.tight_layout()
         return fig, pos
 
     def __eq__(self, other):
@@ -597,4 +598,3 @@ class LQGeq:
             new_direction = (p[direction[0]], p[direction[1]])
             permuted_lqg.add_edge(p[u], p[v], voltage=voltage, direction=new_direction)
         return LQG(permuted_lqg)
-
