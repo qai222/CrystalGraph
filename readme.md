@@ -2,6 +2,8 @@ Crystal Graph
 --
 Finite graphs for describing bond topology of crystal structures.
 
+For more information about this representation, see the section of **Net and quotient graph** in [j.patter.2022.100588](https://doi.org/10.1016/j.patter.2022.100588).
+
 ### Installation
 1. Install `pymatgen`: `conda install -y numpy scipy matplotlib; pip install pymatgen`
 2. To visualize graph with parallel edges you would need [graphviz](https://pygraphviz.github.io/documentation/stable/install.html).
