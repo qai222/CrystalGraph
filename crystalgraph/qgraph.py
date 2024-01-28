@@ -1,6 +1,7 @@
 import abc
 import itertools
 import logging
+from collections import defaultdict
 from typing import Generator
 
 import matplotlib.pyplot as plt
@@ -13,7 +14,7 @@ from pymatgen.core.structure import Structure, PeriodicSite, Lattice, Compositio
 from pymatgen.vis.structure_vtk import EL_COLORS
 
 from crystalgraph.params import _default_CNN
-from crystalgraph.utils import all_have_attributes, gm_node, multigraph_cycles, edge_hash, is_3d_parallel
+from crystalgraph.utils import all_have_attributes, gm_node, multigraph_cycles, edge_hash, is_3d_parallel, import_string
 
 _allowed_voltages = tuple(itertools.product(range(-1, 2), repeat=3))
 
@@ -29,10 +30,28 @@ class QuotientGraph(metaclass=abc.ABCMeta):
     """
 
     def __init__(self, graph, graph_class=None, properties: dict = None, ):
+        # TODO since both UQG and LQG use multigraph, graph_class may be removed here
         self.nxg = graph
         self.nxg_class = graph_class
         self.properties = properties
         self.check()
+
+    def as_dict(self):
+        return {
+            "nl_data": nx.node_link_data(self.nxg),
+            "graph_class": self.nxg_class.__module__ + "." + self.nxg_class.__name__,
+            "properties": self.properties
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict):
+        assert import_string(d['graph_class']) == nx.MultiGraph  # TODO may change
+        for link in d['nl_data']['links']:
+            link['voltage'] = tuple(link['voltage'])
+        return cls(
+            graph=nx.node_link_graph(d['nl_data']),
+            properties=d['properties']
+        )
 
     @abc.abstractmethod
     def check(self):
@@ -124,7 +143,7 @@ class LQG(QuotientGraph):
             raise QGerror("LQG check failed!")
 
     def check_voltage(self) -> bool:
-        return set(self.nxg.edges[e]["voltage"] for e in self.nxg.edges).issubset(_allowed_voltages)
+        return set(d["voltage"] for u, v, k, d in self.nxg.edges(data=True, keys=True)).issubset(_allowed_voltages)
 
     def to_uqg(self) -> UQG:
         g = nx.MultiGraph()
@@ -230,10 +249,12 @@ class LQG(QuotientGraph):
             tail = path[i + 1]
             direction = multigraph.edges[(u, v, k)]["direction"]
             edge_voltage = np.array(multigraph.edges[(u, v, k)]["voltage"], dtype=int)
-            if direction == (head, tail):
+            if direction[0] == head and direction[1] == tail:
                 voltage += edge_voltage
-            else:
+            elif direction[0] == tail and direction[1] == head:
                 voltage -= edge_voltage
+            else:
+                raise RuntimeError("edge direction in edge attribute does not align with the edge, this is impossible")
         return tuple(voltage)
 
     def is_equivalent(self, other):
@@ -368,7 +389,6 @@ class LQG(QuotientGraph):
         this is coded specifically for oxide/oxysalt, be cautious when dealing with other chemical systems
         #TODO maybe better to use a general graph definition so carboxylic are included, see `The Journal of Chemical Physics 154.18 (2021): 184708.`
         """
-        stars = []
         if allow_metal_center:
             star_element_check = lambda center, outers: (center in allowed_centers or Element(center).is_metal) and set(
                 outers).issubset(set(allowed_terminals)) and len(outers) >= 3
@@ -376,39 +396,66 @@ class LQG(QuotientGraph):
             star_element_check = lambda center, outers: center in allowed_centers and set(outers).issubset(
                 set(allowed_terminals)) and len(outers) >= 3
 
+        stars = []
         for n in self.nxg.nodes:
             nbs = list(nx.neighbors(self.nxg, n))
             center_element = self.symbols[n]
             nb_elements = [self.symbols[nb] for nb in nbs]
             if star_element_check(center=center_element, outers=nb_elements):
-                stars.append([n] + nbs)  # the first node is the center
+                star = [n] + nbs
+                star = tuple(star)
+                stars.append(star)  # the first node is the center
+        n_stars = len(stars)
+
+        # helpers
+        star_center_to_star = {s[0]: s for s in stars}
+        star_index_to_center = {i: s[0] for i, s in enumerate(stars)}
+        star_intersection_table = defaultdict(dict)
+        for i in range(n_stars):
+            for j in range(n_stars):
+                if i == j: continue
+                star_intersection_table[i][j] = set(stars[i]).intersection(set(stars[j]))
 
         # a set of checks
         # 1. there must be at least one star
-        assert len(stars) > 0, "there is no allowed star"
+        assert n_stars, "there is no allowed star"
         # 2. two centers cannot be directly connected
-        star_adj = [[set()] * len(stars)] * len(stars)
-        for i, j in itertools.combinations(range(len(stars)), r=2):
-            star_i, star_j = stars[i], stars[j]
-            assert not self.nxg.has_edge(star_i[0], star_j[
-                0]), "two centers cannot be connected by one edge, exception found: {} and {}".format(star_i, star_j)
-            ij_intersection = set(star_i).intersection(set(star_j))
-            star_adj[i][j] = ij_intersection
-            star_adj[j][i] = ij_intersection
-        # 3. a star must have at least one neighboring star (sharing at least one terminal node), this excludes e.g. peroxides
-        for i in range(len(stars)):
+        for i, j in itertools.combinations(range(n_stars), r=2):
+            if i == j:
+                continue
+            assert not self.nxg.has_edge(
+                star_index_to_center[i], star_index_to_center[j],
+            ), "two centers cannot be connected by one edge, exception found: {} and {}".format(stars[i], stars[j])
+        # 3. a star must have at least one neighboring star (sharing at least one terminal node),
+        # this excludes e.g. peroxides
+        nshare_list = []
+        for i in range(n_stars):
             nshare = 0
-            for j in range(len(stars)):
-                if len(star_adj[i][j]) > 0:
+            for j in range(n_stars):
+                if i == j:
+                    continue
+                if len(star_intersection_table[i][j]):
                     nshare += 1
-            assert nshare > 0, "the following start does not have a neighboring star: {}".format(stars[i])
+            assert nshare > 0, "the following star does not have a neighboring star: {}".format(stars[i])
+            nshare_list.append(nshare)
 
-        nodelist2starnode = lambda nodelist: "-".join([str(n) for n in sorted(nodelist)])
+        # 4. the union of stars should cover all sites
+        # TODO is this necessarily an error? We may loose isolated sites but that's kinda fine?
+        nodes_in_stars = []
+        for star in stars:
+            nodes_in_stars += list(star)
+        assert set(nodes_in_stars) == {*self.nxg.nodes}, "some nodes do not present in at least one star"
+
+        # helper function to convert a star defined by LQG nodes to a string node in BU-LQG
+        star_to_string_node = lambda nodelist: "-".join([str(n) for n in nodelist])
+
+        # the resulting BU-LQG
         res = nx.MultiGraph()
 
+        # add nodes to BU-LQG
         for star in stars:
             star_symbol = Composition(" ".join([self.symbols[n] for n in star])).formula
-            star_node = nodelist2starnode(star)
+            star_node = star_to_string_node(star)
             try:
                 center_node_frac_coords = self.nxg.nodes[star[0]]["frac_coords"]
                 res.add_node(star_node, symbol=star_symbol, center=star[0], center_symbol=self.symbols[star[0]],
@@ -416,26 +463,33 @@ class LQG(QuotientGraph):
             except KeyError:
                 res.add_node(star_node, symbol=star_symbol, center=star[0], center_symbol=self.symbols[star[0]])
 
+        # find edges for BU-LQG
+        # keep in mind LQG is in principle a multigraph, always consider parallel edges
         # 1. find all length-2 *edge* paths from i-center to j-center
         # 2. calculate its voltage sum v_ij
         # 3. if two paths have the same voltage, group them together
         # 4. for each group, add an edge and assign the voltage with direction i->j
+        star_ijs = [(i, j) for i, j in itertools.combinations(range(n_stars), r=2) if star_intersection_table[i][j]]
         groups = {}
-        for i, j in itertools.combinations(range(len(stars)), r=2):
-            star_i, star_j = stars[i], stars[j]
-            star_i_node = nodelist2starnode(star_i)
-            star_j_node = nodelist2starnode(star_j)
-            for edge_list in nx.all_simple_edge_paths(self.nxg, star_i[0], star_j[0]):
+        for i, j in star_ijs:
+            star_i_center = star_index_to_center[i]
+            star_j_center = star_index_to_center[j]
+            star_i_string_node = star_to_string_node(stars[i])
+            star_j_string_node = star_to_string_node(stars[j])
+            paths = list(nx.all_simple_edge_paths(self.nxg, star_i_center, star_j_center, cutoff=2))
+            for edge_list in paths:
                 if len(edge_list) != 2:
                     continue
                 voltage = self.voltage_sum_path(edge_list)
-                direction = (star_i_node, star_j_node)
+                direction = (star_i_string_node, star_j_string_node)
                 key = (voltage, direction)
                 if key not in groups:
                     groups[key] = [edge_list]
                 else:
                     groups[key].append(edge_list)
                 # node_path = [e[0] for e in edge_list] + [edge_list[-1][1]]
+        # TODO this means connections like edge_sharing or face_sharing will always be represented as one edge
+        #  they can be distinguished only by the size of `edge_lists`
         for k in groups:
             v, d = k
             edge_lists = groups[k]

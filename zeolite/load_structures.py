@@ -3,6 +3,11 @@ import time
 from loguru import logger
 from pymatgen.io.cssr import Cssr
 
+"""
+extract structures from the concatenated cssr file and export pmg jsons
+indexed and written to `pmg_json` folder
+"""
+
 cssr_strings = []
 cssr_string = ""
 
