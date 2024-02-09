@@ -53,6 +53,13 @@ def export_lqg(json_file: FilePath):
     json_dump(d, f"lqg_bu_json/{output}")
 
 
+def export_lqg_(json_file: FilePath):
+    try:
+        export_lqg(json_file)
+    except Exception as e:
+        logger.error(e.__str__())
+
+
 def export_lqgs(random_sample=False, k=None, n_jobs=1):
     pmg_jsons = sorted(glob.glob("pmg_json/*.json"))
     if random_sample:
@@ -71,7 +78,7 @@ def export_lqgs(random_sample=False, k=None, n_jobs=1):
                 continue
     else:
         with tqdm_joblib(tqdm(desc="parallel export lqgs", total=len(pmg_jsons))) as progress_bar:
-            Parallel(n_jobs=n_jobs)(delayed(export_lqg)(pmg_jsons[i]) for i in range(len(pmg_jsons)))
+            Parallel(n_jobs=n_jobs)(delayed(export_lqg_)(pmg_jsons[i]) for i in range(len(pmg_jsons)))
 
 
 def load_lqg(json_file: FilePath) -> LQG:
