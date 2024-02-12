@@ -9,8 +9,19 @@ from loguru import logger
 from pymatgen.core.structure import Structure
 from tqdm import tqdm
 
+from pathlib import Path
 from crystalgraph import LQG
 from crystalgraph.utils import json_dump, json_load, FilePath
+
+"""
+export LQGs from cssr
+"""
+
+CSSR_FOLDER = "data/cssr"
+LQG_FOLDER = "data/LQG"
+PBU_LQG_FOLDER = "data/PBU_LQG"
+Path(LQG_FOLDER).mkdir(exist_ok=True)
+Path(PBU_LQG_FOLDER).mkdir(exist_ok=True)
 
 
 @contextlib.contextmanager
@@ -31,26 +42,19 @@ def tqdm_joblib(tqdm_object):
         tqdm_object.close()
 
 
-"""
-export LQGs from pmg structure json
-"""
 
-
-def export_lqg(json_file: FilePath):
-    assert os.path.isdir("lqg_bu_json")
-    assert os.path.isdir("lqg_json")
+def export_lqg(structure_file: FilePath):
     # logger.warning("writing to `lqg_bu_json` and `lqg_json`, can overwrite!")
-    zeo = Structure.from_file(json_file)
+    zeo = Structure.from_file(structure_file)
+    zeo_id = Path(structure_file).stem
 
     lqg = LQG.from_structure(zeo)
     d = lqg.as_dict()
-    output = os.path.basename(json_file)
-    json_dump(d, f"lqg_json/{output}")
+    json_dump(d, f"{LQG_FOLDER}/{zeo_id}.json")
 
     lqg_bu = lqg.bu_contraction()
     d = lqg_bu.as_dict()
-    output = os.path.basename(json_file)
-    json_dump(d, f"lqg_bu_json/{output}")
+    json_dump(d, f"{PBU_LQG_FOLDER}/{zeo_id}.json")
 
 
 def export_lqg_(json_file: FilePath):
@@ -61,24 +65,24 @@ def export_lqg_(json_file: FilePath):
 
 
 def export_lqgs(random_sample=False, k=None, n_jobs=1):
-    pmg_jsons = sorted(glob.glob("pmg_json/*.json"))
+    structure_files = sorted(glob.glob(f"{CSSR_FOLDER}/*.cssr"))
     if random_sample:
         assert k is not None
         random.seed(42)
-        pmg_jsons = random.sample(pmg_jsons, k)
+        structure_files = random.sample(structure_files, k)
     elif k is not None:
-        pmg_jsons = pmg_jsons[:k]
+        structure_files = structure_files[:k]
 
     if n_jobs == 1:
-        for jf in tqdm(pmg_jsons):
+        for jf in tqdm(structure_files):
             try:
                 export_lqg(jf)
             except Exception as e:
                 logger.warning(e.__str__())
                 continue
     else:
-        with tqdm_joblib(tqdm(desc="parallel export lqgs", total=len(pmg_jsons))) as progress_bar:
-            Parallel(n_jobs=n_jobs)(delayed(export_lqg_)(pmg_jsons[i]) for i in range(len(pmg_jsons)))
+        with tqdm_joblib(tqdm(desc="parallel export lqgs", total=len(structure_files))) as progress_bar:
+            Parallel(n_jobs=n_jobs)(delayed(export_lqg_)(structure_files[i]) for i in range(len(structure_files)))
 
 
 def load_lqg(json_file: FilePath) -> LQG:
@@ -87,4 +91,4 @@ def load_lqg(json_file: FilePath) -> LQG:
 
 
 if __name__ == '__main__':
-    export_lqgs(random_sample=True, k=500)
+    export_lqgs(random_sample=True, k=50000, n_jobs=60)
