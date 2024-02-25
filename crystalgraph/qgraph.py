@@ -490,6 +490,29 @@ class LQG(QuotientGraph):
                 # node_path = [e[0] for e in edge_list] + [edge_list[-1][1]]
         # TODO this means connections like edge_sharing or face_sharing will always be represented as one edge
         #  they can be distinguished only by the size of `edge_lists`
+        """
+        here is an example of silicate after contraction:
+        {
+            'direction': ['32-0-8-10-12', '34-2-8-14-16'],  
+            # this is a list of contracted node ids, 32 and 34 are the silicon centers
+            'edge_lists': [[[32, 8, 0], [8, 34, 0]]],  
+            # this is a list of paths connecting two centers, a path is a list of edge, 
+            # [32, 8, 0] is the first edge in the original graph, 
+            # note the last 0 is the *edge key in the original multigraph*
+            'key': 0,
+            # this is the *edge key in the contracted multigraph*
+            'nshare': 1,
+            # num of paths in the edge_lists, 1 means connor sharing
+            'source': '32-0-8-10-12',
+            # source node id
+            'target': '34-2-8-14-16',
+            # target node id
+            'voltage': [0, 0, -1]
+            # voltage of this edge in the contracted multigraph, 
+            # calculated by summing the voltage of *one* path in `edge_lists`
+            # because all paths in `edge_lists` should have the same voltage
+        }
+        """
         for k in groups:
             v, d = k
             edge_lists = groups[k]
