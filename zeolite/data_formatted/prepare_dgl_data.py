@@ -80,6 +80,10 @@ class LqgDataset(DGLDataset):
         super().__init__(name="Lqg", save_dir=save_dir)
 
     def process(self):
+        if self.has_cache():
+            logger.critical(f"has cache, loading from: {self.save_path}")
+            self.load()
+            return
         regression_ids = REGRESSION_DF[LQG_ID_COLUMN].tolist()
         lqg_json_files = [
             f"{LQG_FOLDER}/{lqg_id}.json" for lqg_id in regression_ids
