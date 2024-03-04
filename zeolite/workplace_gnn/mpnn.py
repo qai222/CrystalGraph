@@ -261,7 +261,6 @@ if __name__ == "__main__":
 
             optimizer.zero_grad()
 
-
             sup_loss = F.mse_loss(
                 model(sup_graph, sup_nfeat, sup_efeat), sup_target
             )
@@ -288,12 +287,12 @@ if __name__ == "__main__":
 
         model.eval()
 
-        val_error = evaluate(model, val_loader, num_val, args.device)
+        val_error = evaluate(model, val_loader, num_val, DEVICE)
         scheduler.step(val_error)
 
         if val_error < best_val_error:
             best_val_error = val_error
-            test_error = evaluate(model, test_loader, num_test, args.device)
+            test_error = evaluate(model, test_loader, num_test, DEVICE)
 
         print(
             "Epoch: {}, LR: {}, val_error: {:.4f}, best_test_error: {:.4f}".format(

@@ -1,9 +1,12 @@
+import contextlib
 import gzip
 import itertools
 import json
+import pickle
 import sys
 from importlib import import_module
 
+import joblib
 import monty
 import networkx as nx
 import networkx.algorithms.isomorphism as iso
@@ -162,3 +165,60 @@ def json_load(fn: FilePath, warning=False, disable_monty=False):
         with open(fn, "r") as f:
             o = json.load(f, cls=decoder)
     return o
+
+
+@contextlib.contextmanager
+def tqdm_joblib(tqdm_object):
+    """Context manager to patch joblib to report into tqdm progress bar given as argument"""
+
+    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
+        def __call__(self, *args, **kwargs):
+            tqdm_object.update(n=self.batch_size)
+            return super().__call__(*args, **kwargs)
+
+    old_batch_callback = joblib.parallel.BatchCompletionCallBack
+    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
+    try:
+        yield tqdm_object
+    finally:
+        joblib.parallel.BatchCompletionCallBack = old_batch_callback
+        tqdm_object.close()
+
+
+def pkl_dump(obj, fname: FilePath):
+    with open(fname, 'wb') as f:
+        pickle.dump(obj, f)
+
+
+def pkl_load(fname: FilePath):
+    with open(fname, 'rb') as f:
+        obj = pickle.load(f)
+    return obj
+
+import signal
+from functools import wraps
+def timeout(seconds, default=None):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            def signal_handler(signum, frame):
+                raise TimeoutError("Timed out!")
+
+            # Set up the signal handler for timeout
+            signal.signal(signal.SIGALRM, signal_handler)
+
+            # Set the initial alarm for the integer part of seconds
+            signal.setitimer(signal.ITIMER_REAL, seconds)
+
+            try:
+                result = func(*args, **kwargs)
+            except TimeoutError:
+                return default
+            finally:
+                signal.alarm(0)
+
+            return result
+
+        return wrapper
+
+    return decorator

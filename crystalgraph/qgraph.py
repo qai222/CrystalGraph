@@ -29,7 +29,7 @@ class QuotientGraph(metaclass=abc.ABCMeta):
     The nx graph object used to init this must have node label "symbol" defined for every node.
     """
 
-    def __init__(self, graph, graph_class=None, properties: dict = None, ):
+    def __init__(self, graph: nx.MultiGraph, graph_class=None, properties: dict = None, ):
         # TODO since both UQG and LQG use multigraph, graph_class may be removed here
         self.nxg = graph
         self.nxg_class = graph_class

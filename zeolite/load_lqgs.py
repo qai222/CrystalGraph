@@ -1,17 +1,14 @@
-import contextlib
 import glob
-import os.path
 import random
+from pathlib import Path
 
-import joblib
 from joblib import Parallel, delayed
 from loguru import logger
 from pymatgen.core.structure import Structure
 from tqdm import tqdm
 
-from pathlib import Path
 from crystalgraph import LQG
-from crystalgraph.utils import json_dump, json_load, FilePath
+from crystalgraph.utils import json_dump, FilePath, tqdm_joblib
 
 """
 export LQGs from cssr
@@ -22,25 +19,6 @@ LQG_FOLDER = "data/LQG"
 PBU_LQG_FOLDER = "data/PBU_LQG"
 Path(LQG_FOLDER).mkdir(exist_ok=True)
 Path(PBU_LQG_FOLDER).mkdir(exist_ok=True)
-
-
-@contextlib.contextmanager
-def tqdm_joblib(tqdm_object):
-    """Context manager to patch joblib to report into tqdm progress bar given as argument"""
-
-    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
-        def __call__(self, *args, **kwargs):
-            tqdm_object.update(n=self.batch_size)
-            return super().__call__(*args, **kwargs)
-
-    old_batch_callback = joblib.parallel.BatchCompletionCallBack
-    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
-    try:
-        yield tqdm_object
-    finally:
-        joblib.parallel.BatchCompletionCallBack = old_batch_callback
-        tqdm_object.close()
-
 
 
 def export_lqg(structure_file: FilePath):
@@ -83,11 +61,6 @@ def export_lqgs(random_sample=False, k=None, n_jobs=1):
     else:
         with tqdm_joblib(tqdm(desc="parallel export lqgs", total=len(structure_files))) as progress_bar:
             Parallel(n_jobs=n_jobs)(delayed(export_lqg_)(structure_files[i]) for i in range(len(structure_files)))
-
-
-def load_lqg(json_file: FilePath) -> LQG:
-    d = json_load(json_file)
-    return LQG.from_dict(d)
 
 
 if __name__ == '__main__':
